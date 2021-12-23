@@ -6,6 +6,8 @@ from itertools import product
 
 from Env.opter import CvxOpt
 
+runinit = 0
+
 class Env:
 
     REWARD_NEG = 0
@@ -15,14 +17,12 @@ class Env:
     STATE_OFF = 0
 
     def __init__(self, name, configure):
-
+        print("why")
         self.name = name
 
         if configure.random_seed >= 0:
             np.random.seed(configure.random_seed)
 
-        self._num_core = 4
-        self._num_rrh = configure.num_rrh
         self._num_usr = configure.num_usr
 
         self._DM_MAX = configure.demand_max
@@ -34,24 +34,36 @@ class Env:
         self._pow_tsm = configure.pow_tsm
 
         # Start JaeHyun Code
+        #### Hyper-Parameter Setting ###
+        self._num_core = 4
+        self._num_rrh = configure.num_rrh
+        self._util_max = configure.demand_max
+        self._util_min = configure.demand_min
+
         self.cnt_task = self._num_rrh
         self.index_optimal_core = self._num_core
+        self.optimal_value = 0
+        self.max_value = 0
+        self.mean_value = 0
+        self.std_value = 0
 
-        self._task_util = [0.05, 0.11, 0.05, 0.43, 0.17, 0.11, 0.08, 0.02, 0.12, 0.18, 0.07, 0.09]
-        #self._task_util = [0.1]*12
+        while(1):
+            self._task_util = np.random.uniform(1, self._util_max*500/(self._num_rrh/10), size=(self._num_rrh))/1000
+            # self._task_util = np.random.uniform(1, 50, size=(self._num_rrh))/100
+            #print(sum(self._task_util))
+            if sum(self._task_util) > (self._num_core-2 + self._util_min) and sum(self._task_util) < (self._num_core-2 + self._util_max):
+                break
+
         self._core0_load = 0
         self._core1_load = 0
         self._core2_load = 0
         self._core3_load = 0
-        self._core_load = [0]*self._num_core
+        self._core_load = [0] * self._num_core
 
         self._reward_util = configure.reward_util
         self._load_diff = configure.load_diff
         self._task_num = configure.task_num
         self._load_std = 0
-
-        #self._task_util = np.random.uniform(self._DM_MIN, self._DM_MAX, size=self._num_rrh)
-        print("*************mean of this", np.mean(self._task_util))
 
         self.E2E_Deadline = 8
         # Num          = {1,    2,    3,    4,    5,    6,    7,    8,   9,    10,   11,   12  }
@@ -109,9 +121,7 @@ class Env:
         self._state_rrh_max = all_off.copy()
         self._state_rrh_last = self._state_rrh = all_off.copy()
         self._state_rrh_rd_last = self._state_rrh_rd = all_off.copy()
-
         self.reset()
-        self.find_optimal_value()
 
     @property           ### state space is the user demand plus the number of rrh
     def state(self):
@@ -156,6 +166,8 @@ class Env:
 
     @property
     def rnd_rrh_reward(self):
+
+        self._core3_load = 0
         self._core2_load = 0
         self._core1_load = 0
         self._core0_load = 0
@@ -171,8 +183,6 @@ class Env:
         self.on_rnd, self.power_rnd, self.reward_rnd = self._get_rnd_rrh_reward()
 
         self.util_diff()
-        #self.set_task_graph()
-
         self._reward_util = self._get_max_util_reward()
         print("Reward Value:", self._reward_util)
 
@@ -187,20 +197,56 @@ class Env:
         s = self.reset_state()  # 이거 고쳐야 함 ****
         return s
 
-    def find_optimal_value(self):
-        buffer = [0]*100000000
-        cnt = 0
-        lst_core = list(range(1, self._num_core+1))
+########################### Jaehyun BAE Code Start ###############################
+    def find_optimal_value(self, dqn_value):
+        global runinit
 
-        print("모든 조합의 경우의수:")
-        for i in product(lst_core, repeat=self._num_rrh):
-            self.optimal_util_diff(i)
-            buffer[cnt] = self._load_std
-            cnt = cnt + 1
-            print("*****Count: *********", cnt)
+        if runinit == 0:
 
-        buffer = min(buffer[:cnt-1])
-        print("*****Optimize Value is *********", buffer)
+            buffer = [0]*100000000
+            total_cnt = 0
+            better_cnt = 0
+            worse_cnt = 0
+
+            lst_core = list(range(0, self._num_core))
+            print("*****All Case Number:")
+
+            for i in product(lst_core, repeat=self._num_rrh):
+                buffer[total_cnt] = self.optimal_util_diff(i)
+
+                if buffer[total_cnt] < dqn_value:
+                    better_cnt += 1
+                else:
+                    worse_cnt += 1
+
+                total_cnt += 1
+                
+                print("*****Count: *********", total_cnt)
+                
+                self._core0_load = 0
+                self._core1_load = 0
+                self._core2_load = 0
+                self._core3_load = 0
+
+            slice_buffer_min = min(buffer[:total_cnt-1])
+            slice_buffer_max = max(buffer[:total_cnt-1])
+            slice_buffer_mean = np.mean(buffer[:total_cnt-1])
+            slice_buffer_std = np.std(buffer[:total_cnt-1])
+
+            self.optimal_value = slice_buffer_min
+            self.max_value = slice_buffer_max
+            self.mean_value = slice_buffer_mean
+            self.std_value = slice_buffer_std
+
+            print("*****Optimize Value is *********", self.optimal_value)
+            print("*****Better than DQN Number*********", better_cnt)
+            print("*****Worse than DQN Number*********", worse_cnt)
+
+            Performance_ratio = worse_cnt / total_cnt
+
+            return Performance_ratio
+         
+        runinit = 1
 
     def util_diff(self):
         if self._num_core == 4:
@@ -245,10 +291,9 @@ class Env:
         print("Load_Variance:", self._load_std)
 
     def optimal_util_diff(self, task):
-        _log_std = 0
 
         if self._num_core == 4:
-            for i in range(len(task)):
+            for i in range(len(self._state_rrh)):
                 if task[i] == 0:
                     self._core0_load += self._task_util[i]
                 elif task[i] == 1:
@@ -261,7 +306,7 @@ class Env:
             _log_std = [self._core0_load, self._core1_load, self._core2_load, self._core3_load]
 
         elif self._num_core == 3:
-            for i in range(len(task)):
+            for i in range(len(self._state_rrh)):
                 if task[i] == 0:
                     self._core0_load += self._task_util[i]
                 elif task[i] == 1:
@@ -272,7 +317,7 @@ class Env:
             _log_std = [self._core0_load, self._core1_load, self._core2_load]
 
         elif self._num_core == 2:
-            for i in range(len(task)):
+            for i in range(len(self._state_rrh)):
                 if task[i] == 0:
                     self._core0_load += self._task_util[i]
                 elif task[i] == 1:
@@ -282,6 +327,7 @@ class Env:
 
         return np.std(_log_std)
 
+################################ 이거 안씀 ##########################################
     def set_task_graph(self):
 
         # BSW_100ms = 0
@@ -446,6 +492,8 @@ class Env:
             self.Chain2_Deadline[i] = 100
             self.Chain3_Deadline[i] = 100
             self.Chain4_Deadline[i] = 100
+
+########################### Jaehyun BAE Code End ###############################
 
     def reset_channel(self):
         self._paras = self._init_channel()
@@ -623,7 +671,7 @@ class Env:
         self._state_rrh_min_last = self._state_rrh_min.copy()
 
         rd_num_on = range(self._num_rrh)
-        rd_num_on = np.random.choice(rd_num_on, self._num_usr, replace=False)
+       # rd_num_on = np.random.choice(rd_num_on, self._num_usr, replace=False)
         self._state_rrh_min = np.zeros(self._num_rrh)
         self._state_rrh_min[rd_num_on] = self.STATE_ON
 

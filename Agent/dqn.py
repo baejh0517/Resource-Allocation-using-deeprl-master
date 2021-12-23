@@ -21,16 +21,30 @@ from statistics import median
 sum_total_power = 0
 demand_counter = 0
 total_power = []
+user_demand = []
+previous_time = time.time()
+slot_power = []
+average_slot_power = []
+
+#### Jaehyun Parameter #####
 log_util = [0] * 1000
 log_std = [0] * 1000
 log_x_lim = [0] * 1000
 log_index = 0
 Index_max = 100
+DQN_value = 0
 log_index_2 = 0
-user_demand = []
-previous_time = time.time()
-slot_power = []
-average_slot_power = []
+Total_DQN_value = [0] * 150
+Total_Performance_ratio = [0] * 150
+Total_Performance_ratio2 = [0] * 150
+Total_Performance_average_ratio1 = [0] * 150
+Total_Performance_average_ratio2 = [0] * 150
+Worst_value = [0] * 150
+mean_value = [0] * 150
+std_value = [0] * 150
+Final_value = [0] * 150
+Total_Pfcnt = 0
+Average_cnt = 0
 #----------------------
 
 class DQNAgent:
@@ -132,9 +146,9 @@ class DQNAgent:
             act = self._explorer.get_pure_action(q_value)
             print("pure act:", act)
         return act
-
-    def work(self):
-
+    
+    def work(self, num_Avg):
+        
         global sum_total_power
         global demand_counter
         sum_total_power = 0
@@ -187,23 +201,33 @@ class DQNAgent:
                 global log_x_lim
                 global log_std
                 global Index_max
+                global DQN_value
 
-                log_util[log_index_2] = round(util, 5)
+                log_util[log_index_2] = util
                 log_x_lim[log_index_2] = log_index_2
                 log_index = log_index + 1
 
                 if log_index % 30 == 0:
                     log_index_2 = log_index_2 + 1
                     if log_index_2 % Index_max == 0:
+                        # import pdb
+                        # pdb.set_trace()
                         log_util = log_util[:Index_max]
                         log_x_lim = log_x_lim[:Index_max]
+                        ######
+                        list_log = [log_util, log_x_lim]
+                        list_log_np = np.array(list_log)
+                        np.save('logging.npy', list_log_np)
+                        ######
                         plt.plot(log_x_lim, log_util, 'g', marker='.')
                         plt.xlabel('N_Epochs')
                         plt.ylabel('Standard Deviation(σ)')
                         plt.xlim(0, 99)
                         plt.ylim(0, 1)
                         plt.grid(True)
-                        print("************Final Minimum of Value is:", min(log_util))
+
+                        DQN_value = min(log_util)
+
                         plt
                         plt.show()
                 if done:
@@ -215,7 +239,7 @@ class DQNAgent:
                 init_state = state
                 self.reset_log()
                 
-                
+        
         #for data plotting
         #----------------------     
         
@@ -233,8 +257,86 @@ class DQNAgent:
             #for j in range(len(total_power)):
              #   print ('power', total_power[j])
         #----------------------
-        
-        
+
+        ########################### Jaehyun BAE Code ###############################
+
+        Performance_ratio = self._env.find_optimal_value(DQN_value)
+        Performance_ratio2 = self._env.optimal_value/DQN_value
+
+        print("************Final Total Utilzation:", sum(self._env._task_util))
+        print("************Final Task Utilzation:", self._env._task_util)
+        print("************Final Minimum of DQN Value is:", DQN_value)
+        print("************Final Minimum of Optimal Value is:", self._env.optimal_value)
+
+        print("************Final Ratio of Optimal & DQN:", Performance_ratio)
+
+        global Total_DQN_value
+        global Total_Performance_ratio
+        global Total_Performance_ratio2
+        global Total_Performance_average_ratio1
+        global Total_Performance_average_ratio2
+        global Total_Pfcnt
+        global Average_cnt
+        global Worst_value
+        global mean_value
+        global std_value
+        global Final_value
+
+        Total_Performance_ratio[Total_Pfcnt] = round(Performance_ratio, 3)     ### Five Slice for each "utilization bound" approach, ex) 0.2 to 0.4, 0.4 to 0.6, ... 
+        Total_Performance_ratio2[Total_Pfcnt] = round(Performance_ratio2, 3)
+        Total_DQN_value[Total_Pfcnt] = DQN_value
+
+        # if Total_Pfcnt % num_Avg == 2:
+        # Total_Performance_average_ratio1[Average_cnt] = round(Total_Performance_ratio[Total_Pfcnt]/num_Avg, 3)
+        # Total_Performance_average_ratio2[Average_cnt] = round(Total_Performance_ratio2[Total_Pfcnt]/num_Avg, 3)
+
+        # Worst_value[Average_cnt] = round(self._env.max_value, 3)
+        # mean_value[Average_cnt] = round(self._env.mean_value, 3)
+        # std_value[Average_cnt] = round(self._env.std_value, 3)
+
+        # _dqn = (Total_DQN_value[Total_Pfcnt-2] + Total_DQN_value[Total_Pfcnt-1] + Total_DQN_value[Total_Pfcnt])/num_Avg
+        # _mean = mean_value[Average_cnt]
+        # _std = std_value[Average_cnt]
+        # _optimal = self._env.optimal_value
+
+        #Final_value[Average_cnt] = round((_dqn - _mean)/_std , 3)
+
+        Total_Performance_average_ratio1[Total_Pfcnt] = round(Total_Performance_ratio[Total_Pfcnt]/num_Avg, 3)
+        Total_Performance_average_ratio2[Total_Pfcnt] = round(Total_Performance_ratio2[Total_Pfcnt]/num_Avg, 3)
+
+        Worst_value[Total_Pfcnt] = round(self._env.max_value, 3)
+        mean_value[Total_Pfcnt] = round(self._env.mean_value, 3)
+        std_value[Total_Pfcnt] = round(self._env.std_value, 3)
+
+        _dqn = Total_DQN_value[Total_Pfcnt]/num_Avg
+        _mean = mean_value[Total_Pfcnt]
+        _std = std_value[Total_Pfcnt]
+        _optimal = self._env.optimal_value
+        Final_value[Total_Pfcnt] = round((_dqn - _mean)/(_optimal - _mean), 3)
+
+        #Average_cnt += 1
+
+        Total_Pfcnt += 1
+        print("************Final Total_Performance_ratio#1:", Total_Performance_ratio)
+        print("************Final Total_Performance_ratio#2:", Total_Performance_ratio2)
+        print("************Final Average_Performance_ratio#1:", Total_Performance_average_ratio1)
+        print("************Final Average_Performance_ratio#2:", Total_Performance_average_ratio2)
+
+        print("//////////////////////////////////////////")
+        print("************Worst Value is:", Worst_value)
+        print("************Mean Value is:", mean_value)
+        print("************Std Value is:", std_value)
+        print("************Final Value is:", Final_value)
+
+        # Global Parameter Reset except related to Total_Performance
+        log_util = [0] * 1000
+        log_std = [0] * 1000
+        log_x_lim = [0] * 1000
+        log_index = 0
+        Index_max = 100
+        DQN_value = 0
+        log_index_2 = 0
+    
 
     def _train_batch(self, sample):
         self._replay_buffer.add_samples([sample])
